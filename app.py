@@ -61,7 +61,8 @@ class InstallationProgress(db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(user_id)
+    with db.session() as session:
+        return session.get(User, user_id)
 
 def load_elements():
     return pd.read_excel(os.path.join(basedir, 'elements.xlsx'))
