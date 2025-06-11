@@ -98,3 +98,10 @@ body.logged-in::before {
     opacity: 0.05; /* Fainter watermark */
     z-index: -1; /* Behind content */
 }
+#progressForm {
+    margin-top: 20px;
+}
+#maxSimultaneousWorkers {
+    font-weight: bold;
+    color: #333;
+}
