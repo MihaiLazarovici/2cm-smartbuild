@@ -2,43 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2CM SmartBuild - Estimates</title>
+    <title>Estimates</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body class="{% if not is_guest %}logged-in{% endif %}">
-    <div class="container">
-        <img src="/static/images/logo.png" alt="2CM SmartBuild Logo" class="logo">
-        <h1>Your Saved Estimates</h1>
-        <p><a href="/">Back to Estimator</a> | <a href="/logout">Logout</a></p>
-        {% if estimates %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Project Name</th>
-                    <th>Country</th>
-                    <th>Total Cost (£)</th>
-                    <th>Total Time (Days)</th>
-                    <th>Total People</th>
-                    <th>Created At</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for estimate in estimates %}
-                <tr>
-                    <td>{{ estimate.project_name }}</td>
-                    <td>{{ estimate.country }}</td>
-                    <td>£{{ json.loads(estimate.estimates).total_cost }}</td>
-                    <td>{{ json.loads(estimate.estimates).total_time_days }}</td>
-                    <td>{{ json.loads(estimate.estimates).total_people }}</td>
-                    <td>{{ estimate.created_at }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p>No estimates found. Create one on the <a href="/">Estimator</a> page.</p>
-        {% endif %}
-    </div>
+<body>
+    <h2>Previous Estimates</h2>
+    {% for estimate in estimates %}
+        <div>
+            <h3>{{ estimate.project_name }} ({{ estimate.created_at }})</h3>
+            <p>Country: {{ estimate.country }}</p>
+            <p>Time Frame: {{ estimate.time_frame_days }} days</p>
+            <p>Total Cost: £{{ estimate.estimates|tojson|safe }}</p>
+        </div>
+    {% endfor %}
+    <a href="/">Back to Home</a>
 </body>
 </html>
