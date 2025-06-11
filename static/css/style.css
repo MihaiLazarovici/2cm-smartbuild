@@ -1,107 +1,29 @@
 body {
-    font-family: 'Roboto', sans-serif;
-    margin: 0;
-    padding: 20px;
-    background-color: #f4f7fa;
-}
-.container {
-    width: 80%;
-    margin: 0 auto;
-    padding: 20px;
-    background-color: rgba(255, 255, 255, 0.95); /* Slightly opaque white for readability */
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    position: relative;
-    z-index: 1; /* Ensure content is above watermark */
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #f0f0f0;
 }
 .logo {
-    display: block;
-    width: 150px;
-    height: auto;
+    max-width: 200px;
     margin-bottom: 20px;
 }
-h1 {
-    color: #333;
-    font-size: 24px;
-    margin-bottom: 20px;
-}
-.form-group {
-    margin-bottom: 15px;
-}
-.form-group label {
-    display: inline-block;
-    width: 200px;
-    font-weight: bold;
-    color: #555;
-}
-.form-group input, .form-group select {
-    padding: 8px;
-    width: 150px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-}
-button {
-    background-color: #6f42c1; /* Violet */
-    color: white;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
-}
-button:hover {
-    background-color: #5a32a3;
+form div {
+    margin: 10px 0;
 }
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 20px;
+    margin: 20px 0;
 }
 th, td {
     border: 1px solid #ddd;
-    padding: 10px;
-    text-align: center;
+    padding: 8px;
+    text-align: left;
 }
 th {
-    background-color: #6f42c1;
-    color: white;
-}
-tr:nth-child(even) {
-    background-color: #f9f9f9;
+    background-color: #f2f2f2;
 }
 .chart {
-    margin-top: 20px;
-    max-width: 600px;
-}
-a {
-    color: #007bff;
-    text-decoration: none;
-}
-a:hover {
-    text-decoration: underline;
-}
-/* Background Watermark for Logged-in Users */
-body.logged-in {
-    position: relative;
-    background-color: #f4f7fa;
-}
-body.logged-in::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: url('/static/images/logo.png');
-    background-repeat: repeat;
-    background-size: 200px; /* Smaller watermark */
-    opacity: 0.05; /* Fainter watermark */
-    z-index: -1; /* Behind content */
-}
-#progressForm {
-    margin-top: 20px;
-}
-#maxSimultaneousWorkers {
-    font-weight: bold;
-    color: #333;
+    max-width: 400px;
+    margin: 20px 0;
 }
