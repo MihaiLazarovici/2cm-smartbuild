@@ -1,5 +1,4 @@
 synthetic_data.csv
-models/
 __pycache__/
 *.pyc
 venv/
@@ -8,4 +7,3 @@ output/
 .idea/
 *.log
 synthetic_data.csv
-models/
