@@ -1,87 +1,111 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const form = document.getElementById('estimateForm');
-    if (form) {
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const response = await fetch('/calculate', {
-                method: 'POST',
-                body: formData
-            });
-            const data = await response.json();
-            const estimates = data.estimates;
+document.getElementById('estimateForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    fetch('/calculate', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+         const resultsDiv = document.getElementById('results');
+         const resultsTableBody = document.getElementById('resultsTableBody');
+         const totalCostCell = document.getElementById('totalCost');
+         const totalDaysCell = document.getElementById('totalDays');
+         const totalWeeksCell = document.getElementById('totalWeeks');
+         const totalPeopleCell = document.getElementById('totalPeople');
+         const totalTimeFrameCell = document.getElementById('totalTimeFrame');
+         const maxSimWorkers = document.getElementById('maxSimultaneousWorkers');
+         const progressInputsDiv = document.getElementById('progressInputs');
+         resultsTableBody.innerHTML = '';
+         progressInputsDiv.innerHTML = '';
 
-            // Update results table
-            const tableBody = document.getElementById('resultsTable');
-            tableBody.innerHTML = '';
-            estimates.breakdown.forEach(item => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${item.element}</td>
-                    <td>${item.quantity}</td>
-                    <td>${item.unit}</td>
-                    <td>£${item.cost}</td>
-                    <td>${item.time_days}</td>
-                    <td>${item.time_weeks}</td>
-                    <td>${item.people}</td>
-                `;
-                tableBody.appendChild(row);
-            });
-            document.getElementById('totalCost').textContent = `£${estimates.total_cost}`;
-            document.getElementById('totalDays').textContent = estimates.total_time_days;
-            document.getElementById('totalWeeks').textContent = estimates.total_time_weeks;
-            document.getElementById('totalPeople').textContent = estimates.total_people;
-            document.getElementById('results').style.display = 'block';
-            if (data.pdf_path) {
-                document.getElementById('downloadLink').href = data.pdf_path;
-            }
+         // Populate results table
+         data.elements.forEach(element => {
+             const row = document.createElement('tr');
+             row.innerHTML = `
+                 <td>${element.element}</td>
+                 <td>${element.quantity.toFixed(1)}</td>
+                 <td>${element.unit}</td>
+                 <td>${element.cost.toFixed(2)}</td>
+                 <td>${element.time.toFixed(1)}</td>
+                 <td>${(element.time / 7).toFixed(2)}</td>
+                 <td>${element.people_needed}</td>
+                 <td>${element.allocated_days.toFixed(1)}</td>
+             `;
+             resultsTableBody.appendChild(row);
 
-            // Cost Bar Chart
-            const costCtx = document.getElementById('costChart').getContext('2d');
-            new Chart(costCtx, {
-                type: 'bar',
-                data: {
-                    labels: estimates.breakdown.map(item => item.element),
-                    datasets: [{
-                        label: 'Cost (£)',
-                        data: estimates.breakdown.map(item => item.cost),
-                        backgroundColor: 'rgba(0, 123, 255, 0.5)' // Blue
-                    }]
-                },
-                options: { scales: { y: { beginAtZero: true } } }
-            });
+             // Add progress input for logged-in users
+             if (progressInputsDiv) {
+                 const inputDiv = document.createElement('div');
+                 inputDiv.className = 'form-group';
+                 inputDiv.innerHTML = `
+                     <label for="progress_${element.element}">${element.element} Actual Days:</label>
+                     <input type="number" id="progress_${element.element}" name="${element.element}" min="0" step="0.1" value="0">
+                 `;
+                 inputDiv.appendChild(progressInputsDiv);
+             }
+         });
 
-            // Time Bar Chart
-            const timeCtx = document.getElementById('timeChart').getContext('2d');
-            new Chart(timeCtx, {
-                type: 'bar',
-                data: {
-                    labels: estimates.breakdown.map(item => item.element),
-                    datasets: [{
-                        label: 'Time (Days)',
-                        data: estimates.breakdown.map(item => item.time_days),
-                        backgroundColor: 'rgba(253, 126, 20, 0.5)' // Orange
-                    }]
-                },
-                options: { scales: { y: { beginAtZero: true } } }
-            });
+         totalCostCell.textContent = data.total_cost.toFixed(2);
+         totalDaysCell.textContent = data.total_time.toFixed(2);
+         totalWeeksCell.textContent = (data.total_time / 7).toFixed(2);
+         totalPeopleCell.textContent = data.total_people;
+         totalTimeFrameCell.textContent = data.total_time.toFixed(2);
+         maxSimWorkers.textContent = `Maximum Simultaneous Workers: ${data.max_simultaneous_people}`;
 
-            // Labor Histogram
-            const laborCtx = document.getElementById('laborChart').getContext('2d');
-            new Chart(laborCtx, {
-                type: 'bar',
-                data: {
-                    labels: estimates.breakdown.map(item => item.element),
-                    datasets: [{
-                        label: 'Number of People',
-                        data: estimates.breakdown.map(item => item.people),
-                        backgroundColor: 'rgba(111, 66, 193, 0.5)' // Violet
-                    }]
-                },
-                options: { scales: { y: { beginAtZero: true } } }
-            });
-        });
-    } else {
-        console.error('Form with ID "estimateForm" not found');
-    }
-});
+         // Update charts
+         updateChart('costChart', 'Cost Estimate', data.elements.map(e => e.element), data.elements.map(e => e.cost), 'bar', '#6f42c1');
+         updateChart('timeChart', 'Time Estimate', data.elements.map(e => e.element), data.elements.map(e => e.time), 'bar', '#007bff');
+         updateChart('laborChart', 'Labor Histogram', data.elements.map(e => e.element), 'Labor Histogram', data.elements.map(e => e.people_needed), 'bar', '#28a745');
+
+         resultsDiv.style.display = 'block';
+
+         // Set up progress form submission
+         if (progressInputsDiv) {
+             document.getElementById('progressForm').addEventListener('submit', function(e) {
+                 e.preventDefault();
+                 const progressData = new FormData(this);
+                 fetch(`/update_progress/${data.last_estimate_id || 0}`, {
+                     method: 'POST',
+                     body: progressData
+                 })
+                 .then(response => response.json())
+                 .then(result => {
+                     if (result.success) {
+                         alert('Progress updated!');
+                     }
+                 });
+             });
+         }
+    })
+    .catch(error => console.error('Error:', error));
+ });
+
+ function updateChart(canvasId, label, labels, data, type, backgroundColor) {
+     const ctx = document.getElementById('data.canvasId').getContext('2d');
+     if (window[canvasId + '_Chart']) {
+         window[canvasId + '_Chart'].destroy();
+     }
+     window[canvasId + '_Chart'] = new Chart(ctx, {
+         type: type,
+         data: {
+             labels: labels,
+             datasets: [{
+                 label: label,
+                 data: data,
+                 backgroundColor: backgroundColor,
+                 borderColor: backgroundColor,
+                 borderWidth: 1
+             }]
+         },
+         options: {
+             scales: {
+                 yAxes: [{
+                     ticks: {
+                         beginAtZero: true
+                     }
+                 }]
+             }
+         }
+     });
+ }
