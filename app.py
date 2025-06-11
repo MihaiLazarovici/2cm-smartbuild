@@ -1,53 +1,42 @@
-from flask import Flask, render_template, request, jsonify, send_file
+import os
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
-import uuid
-import os
+from sklearn.ensemble import RandomForestRegressor
+import joblib
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Image, Paragraph
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-import joblib
-from datetime import datetime, timedelta
 from twilio.rest import Client
-from twilio.base.exceptions import TwilioRestException
+import uuid
+from datetime import datetime
 
 app = Flask(__name__)
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '2cm-smartbuild-secret-2025')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'smartbuild.db')
+app.config['SECRET_KEY'] = 'your-secret-key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///smartbuild.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Twilio configuration
-TWILIO_SID = os.environ.get('TWILIO_SID', 'your_twilio_sid')
-TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', 'your_twilio_auth_token')
-TWILIO_PHONE = os.environ.get('TWILIO_PHONE', '+1234567890')
-ADMIN_PHONE = os.environ.get('ADMIN_PHONE', '+your_phone_number')
-twilio_client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
-
-# Load ML models
-time_model = joblib.load(os.path.join(basedir, 'models/time_model.pkl'))
-cost_model = joblib.load(os.path.join(basedir, 'models/cost_model.pkl'))
-
+# Models
 class User(db.Model, UserMixin):
-    id = db.Column(db.String(36), primary_key=True)
+    id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128))
+    password = db.Column(db.String(120), nullable=False)
     is_guest = db.Column(db.Boolean, default=False)
 
 class Estimate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.String(36), db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     project_name = db.Column(db.String(100))
     country = db.Column(db.String(50))
-    data = db.Column(db.Text)
-    time_frame_days = db.Column(db.Float)
+    estimates = db.Column(db.Text)
+    time_frame_days = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class InstallationProgress(db.Model):
@@ -55,242 +44,152 @@ class InstallationProgress(db.Model):
     estimate_id = db.Column(db.Integer, db.ForeignKey('estimate.id'))
     element = db.Column(db.String(100))
     allocated_days = db.Column(db.Float)
-    actual_days = db.Column(db.Float, default=0)
     start_date = db.Column(db.DateTime)
-    notification_sent = db.Column(db.Boolean, default=False)
+    progress_days = db.Column(db.Float, default=0)
 
+# Load models and data
+elements_df = pd.read_excel(os.path.join(basedir, 'elements.xlsx'))
+time_model = joblib.load(os.path.join(basedir, 'models/time_model.pkl'))
+cost_model = joblib.load(os.path.join(basedir, 'models/cost_model.pkl'))
+print(f"Loaded time_model from {os.path.join(basedir, 'models/time_model.pkl')}")
+print(f"Loaded cost_model from {os.path.join(basedir, 'models/cost_model.pkl')}")
+
+# User loader
 @login_manager.user_loader
 def load_user(user_id):
     with db.session() as session:
         return session.get(User, user_id)
 
-def load_elements():
-    return pd.read_excel(os.path.join(basedir, 'elements.xlsx'))
-
-def send_notification(element, allocated_days, phone_number):
-    try:
-        message = twilio_client.messages.create(
-            body=f"Warning: Installation of {element} has exceeded allocated time of {allocated_days} days.",
-            from_=TWILIO_PHONE,
-            to=phone_number
-        )
-        print(f"Notification sent for {element}: {message.sid}")
-    except TwilioRestException as e:
-        print(f"Twilio error for {element}: {e}")
-
-def schedule_elements(elements_data, total_time_frame):
-    # Simple scheduling: Allocate time proportionally, calculate simultaneous workers
-    total_base_time = sum(item['time'] for item in elements_data)
-    if total_base_time == 0:
-        return elements_data, 0
-    scale_factor = total_time_frame / total_base_time if total_base_time > total_time_frame else 1
-    max_simultaneous_people = 0
-    for item in elements_data:
-        item['allocated_days'] = item['time'] * scale_factor
-        # Calculate people needed to meet allocated time
-        item['people_needed'] = max(1, int(item['people'] * (item['time'] / item['allocated_days'])))
-        max_simultaneous_people = max(max_simultaneous_people, item['people_needed'])
-    return elements_data, max_simultaneous_people
-
+# Routes
 @app.route('/')
 def index():
-    elements = load_elements()
-    if not current_user.is_authenticated:
-        guest_user = User(
-            id=str(uuid.uuid4()),
-            username=f'guest_{uuid.uuid4().hex[:8]}',
-            password_hash='',
-            is_guest=True
-        )
-        db.session.add(guest_user)
-        db.session.commit()
-        login_user(guest_user)
-    is_guest = current_user.is_guest if current_user.is_authenticated else False
-    print(f"User: {current_user.username if current_user.is_authenticated else 'Anonymous'}, Authenticated: {current_user.is_authenticated}, Is Guest: {is_guest}")
-    limited_elements = elements.head(5) if is_guest else elements
-    return render_template('index.html', elements=limited_elements, countries=['UK'], is_guest=is_guest)
+    return render_template('index.html', elements=elements_df.to_dict('records')[:5 if not current_user.is_authenticated else 24])
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-        if user and not user.is_guest and check_password_hash(user.password_hash, password):
+        user = User.query.filter_by(username=request.form['username']).first()
+        if user and check_password_hash(user.password, request.form['password']):
             login_user(user)
-            return jsonify({'success': True})
-        return jsonify({'success': False, 'message': 'Invalid credentials'})
-    return render_template('login.html')
+            return redirect(url_for('index'))
+        return "Invalid credentials"
+    return render_template('index.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        if User.query.filter_by(username=username).first():
-            return jsonify({'success': False, 'message': 'Username exists'})
-        user = User(
-            id=str(uuid.uuid4()),
-            username=username,
-            password_hash=generate_password_hash(password),
-            is_guest=False
-        )
+        hashed_password = generate_password_hash(request.form['password'])
+        user = User(username=request.form['username'], password=hashed_password)
         db.session.add(user)
         db.session.commit()
-        login_user(user)
-        return jsonify({'success': True})
-    return render_template('register.html')
+        return redirect(url_for('login'))
+    return render_template('index.html')
 
 @app.route('/logout')
+@login_required
 def logout():
     logout_user()
-    return jsonify({'success': True})
+    print("Redirecting to index")
+    return redirect(url_for('index'))
 
 @app.route('/calculate', methods=['POST'])
+@login_required
 def calculate():
-    data = request.form.to_dict()
-    project_name = data.get('project_name', 'Untitled Project')
+    data = request.get_json()
+    project_name = data.get('projectName')
     country = data.get('country', 'UK')
-    time_frame_days = float(data.get('time_frame_days', 0))
-    elements = load_elements()
-    elements_data = []
-    for element in elements['Element']:
-        quantity_key = f'quantity_{element}'
-        people_key = f'people_{element}'
-        if quantity_key in data and float(data[quantity_key]) > 0:
-            quantity = float(data[quantity_key])
-            people = int(data[people_key])
-            # Use ML model to predict time and cost
-            X = pd.DataFrame([[quantity, people]], columns=['Quantity', 'People'])
-            time_per_unit = time_model.predict(X)[0]
-            cost_per_unit = cost_model.predict(X)[0]
-            row = elements[elements['Element'] == element].iloc[0]
+    time_frame_days = int(data.get('timeFrameDays', 0))
+    inputs = {k: float(v) for k, v in data.items() if k.startswith('quantity_') or k.startswith('people_')}
+    elements = {row['Element']: row for _, row in elements_df.iterrows()}
+
+    def calculate_estimates(inputs, elements_df, country='UK', time_frame_days=0):
+        print(f"Inputs: {inputs}")
+        print(f"Elements loaded: {len(elements_df)}")
+        breakdown = []
+        total_cost = 0
+        for element, quantity in [(k.replace('quantity_', ''), v) for k, v in inputs.items() if k.startswith('quantity_')]:
+            people = inputs.get(f'people_{element}', 1)
+            element_data = elements.get(element, {})
+            if not element_data:
+                continue
+            cost_per_unit = element_data['Cost_per_Unit']
+            time_per_unit = element_data['Time_per_Unit_Days']
             cost = quantity * cost_per_unit
-            time = quantity * time_per_unit
-            elements_data.append({
+            time_days = quantity * time_per_unit
+            allocated_days = time_days if time_frame_days == 0 else min(time_days, time_frame_days * (quantity / sum(inputs.values())))
+            breakdown.append({
                 'element': element,
                 'quantity': quantity,
-                'unit': row['Unit'],
+                'unit': element_data['Unit'],
                 'cost': cost,
-                'time': time,
+                'time_days': time_days,
+                'time_weeks': time_days / 7,
                 'people': people,
-                'time_per_unit': time_per_unit,
-                'cost_per_unit': cost_per_unit
+                'allocated_days': allocated_days
             })
-    # Schedule elements
-    elements_data, max_simultaneous_people = schedule_elements(elements_data, time_frame_days)
-    total_cost = sum(item['cost'] for item in elements_data)
-    total_time = sum(item['allocated_days'] for item in elements_data)
-    total_people = sum(item['people_needed'] for item in elements_data)
-    if current_user.is_authenticated and not current_user.is_guest and elements_data:
-        estimate = Estimate(
-            user_id=current_user.id,
-            project_name=project_name,
-            country=country,
-            data=str(elements_data),
-            time_frame_days=time_frame_days
-        )
+            total_cost += cost
+        max_people = max(inputs.get(f'people_{e.replace("quantity_", "")}', 1) for e in inputs if e.startswith('quantity_'))
+        return {'breakdown': breakdown, 'total_cost': total_cost, 'max_people': max_people}
+
+    estimates = calculate_estimates(inputs, elements_df, country, time_frame_days)
+    if current_user.is_authenticated and not current_user.is_guest:
+        estimate = Estimate(user_id=current_user.id, project_name=project_name, country=country, estimates=json.dumps(estimates), time_frame_days=time_frame_days)
         db.session.add(estimate)
         db.session.commit()
-        # Add installation progress
-        for item in elements_data:
-            progress = InstallationProgress(
-                estimate_id=estimate.id,
-                element=item['element'],
-                allocated_days=item['allocated_days'],
-                start_date=datetime.utcnow()
-            )
-            db.session.add(progress)
-        db.session.commit()
-    return jsonify({
-        'elements': elements_data,
-        'total_cost': total_cost,
-        'total_time': total_time,
-        'total_people': total_people,
-        'max_simultaneous_people': max_simultaneous_people
-    })
+        for item in estimates['breakdown']:
+            if item['allocated_days'] > item['time_days']:
+                client = Client(os.getenv('TWILIO_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
+                message = client.messages.create(
+                    body=f"Warning: Installation of {item['element']} exceeds allocated time ({item['allocated_days']} vs {item['time_days']} days)",
+                    from_=os.getenv('TWILIO_PHONE'),
+                    to=os.getenv('ADMIN_PHONE')
+                )
+                print(f"Sent warning SMS: {message.sid}")
+        pdf_path = generate_pdf(estimates, project_name, str(uuid.uuid4()), time_frame_days)
+        estimates['pdf_path'] = url_for('download_file', filename=os.path.basename(pdf_path))
 
-@app.route('/estimates')
-def estimates():
-    if not current_user.is_authenticated or current_user.is_guest:
-        return jsonify({'success': False, 'message': 'Login required'})
-    estimates = Estimate.query.filter_by(user_id=current_user.id).all()
-    return render_template('estimates.html', estimates=estimates)
+    return jsonify(estimates)
 
-@app.route('/download_pdf/<int:estimate_id>')
-def download_pdf(estimate_id):
-    estimate = Estimate.query.get_or_404(estimate_id)
-    if estimate.user_id != current_user.id:
-        return jsonify({'success': False, 'message': 'Unauthorized'})
-    elements_data = eval(estimate.data)
-    pdf_path = os.path.join(basedir, 'output', f'estimate_{estimate_id}.pdf')
+def generate_pdf(estimates, project_name, pdf_id, time_frame_days):
+    pdf_path = os.path.join(basedir, 'output', 'estimates', f'{pdf_id}.pdf')
     os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
     doc = SimpleDocTemplate(pdf_path, pagesize=letter)
-    elements = []
-    logo_path = os.path.join(basedir, 'static', 'images', 'logo.png')
-    if os.path.exists(logo_path):
-        logo = Image(logo_path, width=100, height=50)
-        elements.append(logo)
     styles = getSampleStyleSheet()
-    elements.append(Paragraph(f"Project: {estimate.project_name}", styles['Heading1']))
-    elements.append(Paragraph(f"Country: {estimate.country}", styles['Normal']))
-    elements.append(Paragraph(f"Time Frame: {estimate.time_frame_days} days", styles['Normal']))
-    data = [['Element', 'Quantity', 'Unit', 'Cost (£)', 'Time (Days)', 'People', 'Allocated Days']]
-    for item in elements_data:
-        data.append([
-            item['element'],
-            f"{item['quantity']:.1f}",
-            item['unit'],
-            f"{item['cost']:.2f}",
-            f"{item['time']:.2f}",
-            item['people_needed'],
-            f"{item['allocated_days']:.2f}"
-        ])
+    elements = []
+    data = [['Element', 'Quantity', 'Unit', 'Cost (£)', 'Time (Days)', 'Allocated Days', 'People']]
+    for item in estimates['breakdown']:
+        data.append([item['element'], item['quantity'], item['unit'], item['cost'], item['time_days'], item['allocated_days'], item['people']])
     table = Table(data)
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitetext),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('FONTSIZE', (0, 0), (-1, 0), 14),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
         ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 12),
         ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
+    elements.append(Paragraph(f"Estimate for {project_name} - Time Frame: {time_frame_days} days", styles['Heading1']))
     elements.append(table)
-    labor_data = [['Element', 'People Needed']]
-    for item in elements_data:
-        labor_data.append([item['element'], item['people_needed']])
-    elements.append(Paragraph("Labor Allocation", styles['Heading2']))
-    labor_table = Table(labor_data)
-    labor_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitetext),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(labor_table)
+    elements.append(Paragraph(f"Total Cost: £{estimates['total_cost']}", styles['Normal']))
     doc.build(elements)
-    return send_file(pdf_path, as_attachment=True)
+    return pdf_path
 
-@app.route('/update_progress/<int:estimate_id>', methods=['POST'])
-def update_progress(estimate_id):
-    if not current_user.is_authenticated or current_user.is_guest:
-        return jsonify({'success': False, 'message': 'Login required'})
-    data = request.form.to_dict()
-    for element in data:
-        progress = InstallationProgress.query.filter_by(estimate_id=estimate_id, element=element).first()
-        if progress:
-            progress.actual_days = float(data[element])
-            if progress.actual_days > progress.allocated_days and not progress.notification_sent:
-                send_notification(element, progress.allocated_days, ADMIN_PHONE)
-                progress.notification_sent = True
-            db.session.commit()
-    return jsonify({'success': True})
+@app.route('/download/<filename>')
+def download_file(filename):
+    return send_from_directory(os.path.join(basedir, 'output', 'estimates'), filename, as_attachment=True)
+
+@app.route('/estimates')
+@login_required
+def estimates():
+    estimates = Estimate.query.filter_by(user_id=current_user.id).all()
+    return render_template('estimates.html', estimates=estimates)
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(debug=True, host='0.0.0.0')
