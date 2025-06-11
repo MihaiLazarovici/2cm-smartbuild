@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="{% if current_user.is_authenticated and not is_guest %}logged-in{% endif %}">
+<body class="{% if current_user.is_authenticated and not is_guest %}logged-in__content{% endif %}">
     <div class="container">
         <img src="/static/images/logo.png" alt="2CM SmartBuild Logo" class="logo">
         <h1>2CM SmartBuild: Facade Cost & Time Estimator</h1>
@@ -22,7 +22,7 @@
         <form id="estimateForm">
             <div class="form-group">
                 <label for="project_name">Project Name:</label>
-                <input type="text" id="project_name" name="project_name" value="Untitled Project">
+                <input type="text" id="projectName" name="project_name" value="Global Project">
             </div>
             <div class="form-group">
                 <label for="country">Country:</label>
@@ -31,6 +31,10 @@
                     <option value="{{ country }}">{{ country }}</option>
                     {% endfor %}
                 </select>
+            </div>
+            <div class="form-group">
+                <label for="time_frame_days">Total Time Frame (Days):</label>
+                <input type="number" id="time_frame_days" name="time_frame_days" min="1" step="0.1" value="10">
             </div>
             {% for index, row in elements.iterrows() %}
             <div class="form-group">
@@ -44,6 +48,7 @@
         </form>
         <div id="results" style="display: none;">
             <h2>Estimate Results</h2>
+            <p id="maxSimultaneousWorkers"></p>
             <table>
                 <thead>
                     <tr>
@@ -54,6 +59,7 @@
                         <th>Time (Days)</th>
                         <th>Time (Weeks)</th>
                         <th>People</th>
+                        <th>Allocated Time (Days)</th>
                     </tr>
                 </thead>
                 <tbody id="resultsTable"></tbody>
@@ -63,17 +69,25 @@
                         <td id="totalCost"></td>
                         <td id="totalDays"></td>
                         <td id="totalWeeks"></td>
-                        <td id="totalPeople"></td>
+                        <id id="totalPeople"></td>
+                        <td id="totalTimeFrame"></td>
                     </tr>
                 </tfoot>
             </table>
             {% if current_user.is_authenticated and not is_guest %}
             <a id="downloadLink" href="#" download>Download PDF</a>
             {% endif %}
+            {% if current_user.is_authenticated and not is_guest %}
+            <h2>Update Progress</h2>
+            <form id="progressForm">
+                <div id="progressInputs"></div>
+                <button type="submit">Update Progress</button>
+            </form>
+            {% endif %}
+            <canvas id="costChart" class="chart"></canvas>
+            <canvas id="timeChart" class="chart"></canvas>
+            <canvas id="laborChart"></canvas>
         </div>
-        <canvas id="costChart" class="chart"></canvas>
-        <canvas id="timeChart" class="chart"></canvas>
-        <canvas id="laborChart" class="chart"></canvas>
     </div>
     <script src="/static/js/script.js"></script>
 </body>
