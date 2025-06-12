@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>2CM SmartBuild</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
 <body class="{% if current_user.is_authenticated %}logged-in{% else %}guest{% endif %}">
     <header>
@@ -91,7 +92,7 @@
         {% if current_user.is_authenticated %}
         <div>
             <h3>Past Estimates</h3>
-            <a href="{{ url_for('view_estimates') }}">View Saved Estimates</a>
+            <a href="{{ url_for('estimates') }}">View Saved Estimates</a>
         </div>
         {% endif %}
     </main>
