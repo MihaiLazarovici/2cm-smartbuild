@@ -27,3 +27,14 @@ th {
     max-width: 400px;
     margin: 20px 0;
 }
+#progressForm {
+    margin-top: 20px;
+}
+#progressInputs .form-group {
+    margin-bottom: 10px;
+}
+#maxSimultaneousWorkers {
+    font-weight: bold;
+    color: #333;
+    margin-top: 10px;
+}
