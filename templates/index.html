@@ -1,61 +1,92 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>2CM SmartBuild - AI-Powered Construction Estimator</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-    <img src="/static/images/logo.png" alt="2CM SmartBuild Logo" class="logo">
-    {% if current_user.is_authenticated %}
-        <a href="/logout">Logout</a>
-        <a href="/estimates">Estimates</a>
-    {% else %}
-        <h2>Login</h2>
-        <form method="POST" action="/login">
-            <input type="text" name="username" placeholder="Username" required><br>
-            <input type="password" name="password" placeholder="Password" required><br>
-            <button type="submit">Login</button>
-        </form>
-        <h2>Register</h2>
-        <form method="POST" action="/register">
-            <input type="text" name="username" placeholder="Username" required><br>
-            <input type="password" name="password" placeholder="Password" required><br>
-            <button type="submit">Register</button>
-        </form>
-    {% endif %}
-    <h2>Estimate Form</h2>
-    <form id="estimateForm">
-        <input type="text" id="projectName" placeholder="Project Name" required><br>
-        <input type="number" id="timeFrameDays" placeholder="Time Frame (Days)" required><br>
-        {% for element in elements %}
-            <div>
-                <label>{{ element.Element }} ({{ element.Unit }})</label>
-                <input type="number" id="quantity_{{ element.Element }}" placeholder="Quantity" min="0" step="0.1">
-                <input type="number" id="people_{{ element.Element }}" placeholder="People" min="1" value="1">
-            </div>
-        {% endfor %}
-        <button type="submit">Calculate</button>
-    </form>
-    <div id="results" style="display:none;">
-        <table id="resultsTable">
-            <thead><tr><th>Element</th><th>Quantity</th><th>Unit</th><th>Cost (£)</th><th>Time (Days)</th><th>Time (Weeks)</th><th>People</th><th>Allocated Days</th></tr></thead>
-            <tbody></tbody>
-        </table>
-        <p>Total Cost: <span id="totalCost">£0</span></p>
-        <p>Maximum Simultaneous Workers: <span id="maxWorkers">0</span></p>
-        <canvas id="costChart" class="chart"></canvas>
-        <canvas id="timeChart" class="chart"></canvas>
-        <canvas id="laborChart" class="chart"></canvas>
-        <a id="downloadLink" href="#" download>Download PDF</a>
-    </div>
-    <div id="progressForm" style="display:none;">
-        <h3>Update Progress</h3>
-        <select id="progressElement"></select>
-        <input type="number" id="progressDays" placeholder="Days Completed" min="0">
-        <button onclick="updateProgress()">Update</button>
-    </div>
-    <script src="/static/js/script.js"></script>
-</body>
-</html>
+     <html lang="en">
+     <head>
+         <meta charset="UTF-8">
+         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+         <title>2CM SmartBuild</title>
+         <link rel="stylesheet" href="/static/css/style.css">
+         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+     </head>
+     <body class="{% if current_user.is_authenticated and not is_guest %}logged-in{% endif %}">
+         <div class="container">
+             <img src="/static/images/logo.png" alt="2CM SmartBuild Logo" class="logo">
+             <h1>2CM SmartBuild: Facade Cost & Time Estimator</h1>
+             {% if current_user.is_authenticated and not is_guest %}
+             <p>Welcome, {{ current_user.username }}! <a href="/estimates">View Saved Estimates</a> | <a href="/logout">Logout</a></p>
+             {% else %}
+             <p><a href="/login">Login</a> | <a href="/register">Register</a></p>
+             {% endif %}
+             {% if is_guest %}
+             <p>Guest Mode: Limited access. Register for full features.</p>
+             {% endif %}
+             <form id="estimateForm">
+                 <div class="form-group">
+                     <label for="project_name">Project Name:</label>
+                     <input type="text" id="project_name" name="project_name" value="Untitled Project">
+                 </div>
+                 <div class="form-group">
+                     <label for="country">Country:</label>
+                     <select id="country" name="country">
+                         {% for country in countries %}
+                         <option value="{{ country }}">{{ country }}</option>
+                         {% endfor %}
+                     </select>
+                 </div>
+                 <div class="form-group">
+                     <label for="time_frame_days">Total Time Frame (Days):</label>
+                     <input type="number" id="time_frame_days" name="time_frame_days" min="1" step="0.1" value="10">
+                 </div>
+                 {% for index, row in elements.iterrows() %}
+                 <div class="form-group">
+                     <label for="quantity_{{ row['Element'] }}">{{ row['Element'] }} ({{ row['Unit'] }}):</label>
+                     <input type="number" id="quantity_{{ row['Element'] }}" name="quantity_{{ row['Element'] }}" min="0" step="0.1" value="0">
+                     <label for="people_{{ row['Element'] }}">People:</label>
+                     <input type="number" id="people_{{ row['Element'] }}" name="people_{{ row['Element'] }}" min="0" step="1" value="{{ row['People_per_Unit']|int }}">
+                 </div>
+                 {% endfor %}
+                 <button type="submit">Calculate</button>
+             </form>
+             <div id="results" style="display: none;">
+                 <h2>Estimate Results</h2>
+                 <p id="maxSimultaneousWorkers"></p>
+                 <table>
+                     <thead>
+                         <tr>
+                             <th>Element</th>
+                             <th>Quantity</th>
+                             <th>Unit</th>
+                             <th>Cost (£)</th>
+                             <th>Time (Days)</th>
+                             <th>Time (Weeks)</th>
+                             <th>People</th>
+                             <th>Allocated Days</th>
+                         </tr>
+                     </thead>
+                     <tbody id="resultsTable"></tbody>
+                     <tfoot>
+                         <tr>
+                             <td colspan="3">Total</td>
+                             <td id="totalCost"></td>
+                             <td id="totalDays"></td>
+                             <td id="totalWeeks"></td>
+                             <td id="totalPeople"></td>
+                             <td id="totalTimeFrame"></td>
+                         </tr>
+                     </tfoot>
+                 </table>
+                 {% if current_user.is_authenticated and not is_guest %}
+                 <a id="downloadLink" href="#" download>Download PDF</a>
+                 <h2>Update Installation Progress</h2>
+                 <form id="progressForm">
+                     <div id="progressInputs"></div>
+                     <button type="submit">Update Progress</button>
+                 </form>
+                 {% endif %}
+                 <canvas id="costChart" class="chart"></canvas>
+                 <canvas id="timeChart" class="chart"></canvas>
+                 <canvas id="laborChart" class="chart"></canvas>
+             </div>
+         </div>
+         <script src="/static/js/script.js"></script>
+     </body>
+     </html>
