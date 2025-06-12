@@ -4,7 +4,7 @@ body.guest {
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
-    opacity: 0.1; /* Faint background */
+    opacity: 0.03; /* Fainter background */
     min-height: 100vh;
     margin: 0;
     padding: 20px;
@@ -17,7 +17,7 @@ body.logged-in {
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
-    opacity: 0.1; /* Faint background */
+    opacity: 0.03; /* Fainter background */
     min-height: 100vh;
     margin: 0;
     padding: 20px;
