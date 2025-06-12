@@ -1,40 +1,87 @@
-body {
-    font-family: Arial, sans-serif;
-    margin: 20px;
-    background-color: #f0f0f0;
+body.guest {
+    background-image: url('../images/logo_guest.png');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    opacity: 0.1; /* Faint background */
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
 }
-.logo {
-    max-width: 200px;
+
+body.logged-in {
+    background-image: url('../images/logo_logged_in.png');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    opacity: 0.1; /* Faint background */
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 20px;
 }
-form div {
-    margin: 10px 0;
+
+#logo {
+    width: 150px; /* Adjust size as needed */
+    height: auto;
 }
+
+.auth-links {
+    font-size: 16px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+#progressForm {
+    margin-top: 20px;
+}
+
+#progressInputs .form-group {
+    margin-bottom: 10px;
+}
+
+#maxSimultaneousWorkers {
+    font-weight: bold;
+    color: #333;
+    margin-top: 10px;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
-    margin: 20px 0;
+    margin-top: 20px;
 }
+
 th, td {
     border: 1px solid #ddd;
     padding: 8px;
     text-align: left;
 }
+
 th {
     background-color: #f2f2f2;
 }
-.chart {
-    max-width: 400px;
-    margin: 20px 0;
+
+button {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
 }
-#progressForm {
-    margin-top: 20px;
-}
-#progressInputs .form-group {
-    margin-bottom: 10px;
-}
-#maxSimultaneousWorkers {
-    font-weight: bold;
-    color: #333;
-    margin-top: 10px;
+
+button:hover {
+    background-color: #45a049;
 }
