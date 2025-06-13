@@ -1,100 +1,74 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>2CM SmartBuild</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}">
 </head>
-<body class="{% if current_user.is_authenticated %}logged-in{% else %}guest{% endif %}">
-    <header>
-        {% if not current_user.is_authenticated %}
-        <div class="auth-links">
-            <a href="{{ url_for('login') }}">Login</a> | <a href="{{ url_for('register') }}">Register</a>
+<body class="{{ body_class }}">
+    <img id="logo" src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="{{ body_class }}">
+    {% if body_class == 'logged-in' %}
+        <a href="{{ url_for('logout') }}">Logout</a>
+    {% else %}
+        <a href="{{ url_for('login') }}">Login</a> | <a href="{{ url_for('register') }}">Register</a>
+    {% endif %}
+    <h1>2CM SmartBuild</h1>
+    <form method="POST">
+        <div class="form-group">
+            <label>Project Name: </label>
+            <input type="text" name="project_name" required>
         </div>
-        {% else %}
-        <div class="auth-links">
-            <span>Welcome, {{ current_user.username }}!</span> | <a href="{{ url_for('logout') }}">Logout</a>
+        <div class="form-group">
+            <label>Time Frame (days): </label>
+            <input type="number" name="time_frame" step="0.1" min="0" required>
         </div>
-        {% endif %}
-    </header>
-    <main>
-        <h1>2CM SmartBuild Cost Estimator</h1>
-        {% if not current_user.is_authenticated %}
-        <p>Guest mode: Limited to 5 elements. <a href="{{ url_for('register') }}">Register</a> or <a href="{{ url_for('login') }}">Login</a> for full access.</p>
-        {% endif %}
-        <form id="estimateForm" method="POST" action="{{ url_for('calculate') }}">
+        {% for element in elements %}
             <div class="form-group">
-                <label for="projectName">Project Name:</label>
-                <input type="text" id="projectName" name="projectName" required>
+                <label>{{ element.Element }} ({{ element.Unit }}):</label>
+                <input type="number" name="quantity_{{ element.Element }}" step="0.1" min="0">
+                <input type="number" name="people_{{ element.Element }}" min="1" placeholder="People">
             </div>
-            <div class="form-group">
-                <label for="timeFrame">Time Frame (days):</label>
-                <input type="number" id="timeFrame" name="timeFrame" min="1" required>
-            </div>
-            <div id="elementInputs">
-                {% for element in elements[:24 if current_user.is_authenticated else 5] %}
-                <div class="form-group">
-                    <label>{{ element.Element }} ({{ element.Unit }}):</label>
-                    <input type="number" name="quantity_{{ element.Element }}" min="0" step="0.01" placeholder="Quantity">
-                    <input type="number" name="people_{{ element.Element }}" min="0" step="1" placeholder="People">
-                </div>
-                {% endfor %}
-            </div>
-            <button type="submit">Calculate</button>
-        </form>
-        {% if result %}
-        <div id="result">
-            <h2>Estimate for {{ result.project_name }}</h2>
-            <p>Time Frame: {{ result.time_frame }} days</p>
-            <p>Max Simultaneous Workers: <span id="maxSimultaneousWorkers">{{ result.max_workers }}</span></p>
-            <table>
+        {% endfor %}
+        <button type="submit">Calculate</button>
+    </form>
+    {% if project_name %}
+        <h2>Project: {{ project_name }}</h2>
+        <p>Time Frame: {{ time_frame }} days</p>
+        <p id="maxSimultaneousWorkers">Max Simultaneous Workers: {{ max_workers }}</p>
+        <table>
+            <tr>
+                <th>Element</th>
+                <th>Unit</th>
+                <th>Quantity</th>
+                <th>People</th>
+                <th>Allocated Days</th>
+                <th>Cost</th>
+            </tr>
+            {% for element in elements %}
                 <tr>
-                    <th>Element</th>
-                    <th>Unit</th>
-                    <th>Quantity</th>
-                    <th>Cost per Unit</th>
-                    <th>Total Cost</th>
-                    <th>Time per Unit (Days)</th>
-                    <th>Allocated Days</th>
-                    <th>People</th>
+                    <td>{{ element.Element }}</td>
+                    <td>{{ element.Unit }}</td>
+                    <td>{{ element.Quantity }}</td>
+                    <td>{{ element.People }}</td>
+                    <td>{{ element.Allocated_Days | round(2) }}</td>
+                    <td>{{ element.Cost | round(2) }}</td>
                 </tr>
-                {% for item in result.items %}
-                <tr>
-                    <td>{{ item.element }}</td>
-                    <td>{{ item.unit }}</td>
-                    <td>{{ item.quantity }}</td>
-                    <td>{{ item.cost_per_unit }}</td>
-                    <td>{{ item.total_cost }}</td>
-                    <td>{{ item.time_per_unit }}</td>
-                    <td>{{ item.allocated_days }}</td>
-                    <td>{{ item.people }}</td>
-                </tr>
-                {% endfor %}
-            </table>
-            {% if current_user.is_authenticated %}
-            <a href="{{ url_for('download_pdf', project_name=result.project_name) }}">Download PDF</a>
-            <div id="progressForm">
-                <h3>Track Installation Progress</h3>
-                {% for item in result.items %}
-                <div class="form-group">
-                    <label>{{ item.element }} Progress (Days):</label>
-                    <input type="number" name="progress_{{ item.element }}" min="0" step="0.01" placeholder="Days spent">
+            {% endfor %}
+        </table>
+        {% if body_class == 'logged-in' %}
+            <a href="{{ url_for('download_pdf') }}">Download PDF</a>
+            <form id="progressForm" method="POST" action="{{ url_for('update_progress') }}">
+                <div id="progressInputs">
+                    {% for element in elements %}
+                        <div class="form-group">
+                            <label>Progress for {{ element.Element }} (days):</label>
+                            <input type="number" name="progress_{{ element.Element }}" step="0.1" min="0">
+                        </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
-                <button onclick="submitProgress()">Submit Progress</button>
-            </div>
-            {% endif %}
-        </div>
+                <button type="submit">Update Progress</button>
+            </form>
         {% endif %}
-        {% if current_user.is_authenticated %}
-        <div>
-            <h3>Past Estimates</h3>
-            <a href="{{ url_for('estimates') }}">View Saved Estimates</a>
-        </div>
-        {% endif %}
-    </main>
+    {% endif %}
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>
