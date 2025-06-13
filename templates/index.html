@@ -9,7 +9,6 @@
 </head>
 <body class="{% if current_user.is_authenticated %}logged-in{% else %}guest{% endif %}">
     <header>
-        <img src="{{ url_for('static', filename='images/' + ('logo_logged_in.png' if current_user.is_authenticated else 'logo_guest.png')) }}" alt="2CM SmartBuild Logo" id="logo">
         {% if not current_user.is_authenticated %}
         <div class="auth-links">
             <a href="{{ url_for('login') }}">Login</a> | <a href="{{ url_for('register') }}">Register</a>
