@@ -1,23 +1,37 @@
-from flask import Flask, render_template, request, redirect, url_for, send_file
+from flask import Flask, render_template, request, redirect, url_for, send_file, flash
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import pandas as pd
-import joblib
-from twilio.rest import Client
 import os
-from reportlab.lib.pagesizes import A4
+import joblib
+from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 from io import BytesIO
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///smartbuild.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
+# Load elements
+elements_df = pd.read_excel('elements.xlsx')
+ELEMENTS = elements_df.to_dict('records')
 
+# Load ML models
+time_model = joblib.load('models/time_model.pkl')
+cost_model = joblib.load('models/cost_model.pkl')
+
+# SendGrid setup
+SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
+SENDGRID_SENDER = os.getenv('SENDGRID_SENDER')
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
+
+
+# Models
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -27,30 +41,18 @@ class User(UserMixin, db.Model):
 class Estimate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    project_name = db.Column(db.String(100), nullable=False)
-    time_frame = db.Column(db.Float, nullable=False)
-    max_workers = db.Column(db.Integer, nullable=False)
-    items = db.relationship('EstimateItem', backref='estimate', lazy=True)
-
-
-class EstimateItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    estimate_id = db.Column(db.Integer, db.ForeignKey('estimate.id'), nullable=False)
-    element = db.Column(db.String(100), nullable=False)
-    unit = db.Column(db.String(50), nullable=False)
-    quantity = db.Column(db.Float, nullable=False)
-    cost_per_unit = db.Column(db.Float, nullable=False)
-    total_cost = db.Column(db.Float, nullable=False)
-    time_per_unit = db.Column(db.Float, nullable=False)
-    allocated_days = db.Column(db.Float, nullable=False)
-    people = db.Column(db.Integer, nullable=False)
+    project_name = db.Column(db.String(100))
+    time_frame = db.Column(db.Float)
+    elements = db.Column(db.JSON)
+    max_workers = db.Column(db.Integer)
 
 
 class InstallationProgress(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     estimate_id = db.Column(db.Integer, db.ForeignKey('estimate.id'), nullable=False)
-    element = db.Column(db.String(100), nullable=False)
-    days_spent = db.Column(db.Float, nullable=False)
+    element = db.Column(db.String(100))
+    progress_days = db.Column(db.Float)
+    allocated_days = db.Column(db.Float)
 
 
 @login_manager.user_loader
@@ -58,15 +60,48 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    elements = pd.read_excel('elements.xlsx').to_dict('records')
-    print(f"Loaded {len(elements)} elements")
-    is_guest = not current_user.is_authenticated or current_user.username.startswith('guest_')
-    limited_elements = elements[:5] if is_guest else elements[:24]
-    print(
-        f"User: {current_user.get_id() or 'None'}, Authenticated: {current_user.is_authenticated}, Is Guest: {is_guest}")
-    return render_template('index.html', elements=limited_elements, countries=['UK'], is_guest=is_guest)
+    if request.method == 'POST':
+        project_name = request.form.get('project_name')
+        time_frame = float(request.form.get('time_frame', 0))
+        selected_elements = []
+        for element in ELEMENTS:
+            quantity = request.form.get(f'quantity_{element["Element"]}')
+            people = request.form.get(f'people_{element["Element"]}')
+            if quantity and float(quantity) > 0:
+                qty = float(quantity)
+                ppl = int(people) if people else element['People_per_Unit']
+                time_pred = time_model.predict([[qty, ppl]])[0]
+                cost_pred = cost_model.predict([[qty, ppl]])[0]
+                allocated_days = time_pred * qty
+                selected_elements.append({
+                    'Element': element['Element'],
+                    'Unit': element['Unit'],
+                    'Quantity': qty,
+                    'People': ppl,
+                    'Allocated_Days': allocated_days,
+                    'Cost': cost_pred * qty
+                })
+        max_workers = max([e['People'] for e in selected_elements], default=0)
+        if current_user.is_authenticated:
+            estimate = Estimate(
+                user_id=current_user.id,
+                project_name=project_name,
+                time_frame=time_frame,
+                elements=selected_elements,
+                max_workers=max_workers
+            )
+            db.session.add(estimate)
+            db.session.commit()
+        return render_template('index.html', elements=selected_elements, project_name=project_name,
+                               time_frame=time_frame, max_workers=max_workers,
+                               body_class='logged-in' if current_user.is_authenticated else 'guest')
+
+    # Limit to 1 element for guests
+    display_elements = ELEMENTS[:1] if not current_user.is_authenticated else ELEMENTS
+    return render_template('index.html', elements=display_elements,
+                           body_class='logged-in' if current_user.is_authenticated else 'guest')
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -78,8 +113,9 @@ def login():
         if user:
             login_user(user)
             return redirect(url_for('index'))
-        return 'Invalid credentials', 401
-    return render_template('login.html')
+        flash('Invalid credentials', 'error')
+        return redirect(url_for('login'))
+    return render_template('login.html', body_class='guest')
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -87,12 +123,17 @@ def register():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+        # Check if username exists
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash('Username already exists. Please choose a different username.', 'error')
+            return redirect(url_for('register'))
         user = User(username=username, password=password)
         db.session.add(user)
         db.session.commit()
         login_user(user)
         return redirect(url_for('index'))
-    return render_template('register.html')
+    return render_template('register.html', body_class='guest')
 
 
 @app.route('/logout')
@@ -102,131 +143,61 @@ def logout():
     return redirect(url_for('index'))
 
 
-@app.route('/calculate', methods=['POST'])
-def calculate():
-    project_name = request.form['projectName']
-    time_frame = float(request.form['timeFrame'])
-    elements = pd.read_excel('elements.xlsx').to_dict('records')
-    is_guest = not current_user.is_authenticated or current_user.username.startswith('guest_')
-    limited_elements = elements[:5] if is_guest else elements[:24]
-
-    time_model = joblib.load('models/time_model.pkl')
-    cost_model = joblib.load('models/cost_model.pkl')
-
-    result_items = []  # Renamed to avoid confusion with dict.items
-    max_workers = 0
-    total_time = 0
-    for element in limited_elements:
-        quantity_str = request.form.get(f'quantity_{element["Element"]}', '0')
-        quantity = float(quantity_str) if quantity_str.strip() else 0.0
-        people_str = request.form.get(f'people_{element["Element"]}', '0')
-        people = int(people_str) if people_str.strip() else 0
-        if quantity > 0:
-            X = [[quantity, people]]
-            predicted_time = time_model.predict(X)[0]
-            predicted_cost = cost_model.predict(X)[0]
-            total_cost = quantity * predicted_cost
-            allocated_days = (predicted_time * quantity) / people if people > 0 else predicted_time * quantity
-            total_time += allocated_days
-            max_workers = max(max_workers, people)
-            result_items.append({
-                'element': element['Element'],
-                'unit': element['Unit'],
-                'quantity': quantity,
-                'cost_per_unit': predicted_cost,
-                'total_cost': total_cost,
-                'time_per_unit': predicted_time,
-                'allocated_days': allocated_days,
-                'people': people
-            })
-
-    if total_time > time_frame and not is_guest:
-        client = Client(os.getenv('TWILIO_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
-        client.messages.create(
-            body=f"Warning: Project {project_name} exceeds time frame of {time_frame} days",
-            from_=os.getenv('TWILIO_PHONE'),
-            to=os.getenv('ADMIN_PHONE')
-        )
-
-    if not is_guest:
-        estimate = Estimate(user_id=current_user.id, project_name=project_name, time_frame=time_frame,
-                            max_workers=max_workers)
-        db.session.add(estimate)
-        db.session.commit()
-        for item in result_items:
-            estimate_item = EstimateItem(
-                estimate_id=estimate.id,
-                element=item['element'],
-                unit=item['unit'],
-                quantity=item['quantity'],
-                cost_per_unit=item['cost_per_unit'],
-                total_cost=item['total_cost'],
-                time_per_unit=item['time_per_unit'],
-                allocated_days=item['allocated_days'],
-                people=item['people']
+@app.route('/update_progress', methods=['POST'])
+@login_required
+def update_progress():
+    estimate_id = Estimate.query.filter_by(user_id=current_user.id).order_by(Estimate.id.desc()).first().id
+    for element in ELEMENTS:
+        progress = request.form.get(f'progress_{element["Element"]}')
+        if progress and float(progress) > 0:
+            allocated_days = next((e['Allocated_Days'] for e in Estimate.query.get(estimate_id).elements
+                                   if e['Element'] == element['Element']), 0)
+            if float(progress) > allocated_days:
+                message = Mail(
+                    from_email=SENDGRID_SENDER,
+                    to_emails=ADMIN_EMAIL,
+                    subject='2CM SmartBuild: Progress Warning',
+                    html_content=f'<strong>Warning: Installation of {element["Element"]} exceeds allocated time ({progress} > {allocated_days} days)</strong>'
+                )
+                try:
+                    sg = SendGridAPIClient(SENDGRID_API_KEY)
+                    sg.send(message)
+                except Exception as e:
+                    print(f"Email error: {e}")
+            progress_entry = InstallationProgress(
+                estimate_id=estimate_id,
+                element=element['Element'],
+                progress_days=float(progress),
+                allocated_days=allocated_days
             )
-            db.session.add(estimate_item)
-        db.session.commit()
-
-    return render_template('index.html', elements=limited_elements, result={
-        'project_name': project_name,
-        'time_frame': time_frame,
-        'max_workers': max_workers,
-        'items': result_items  # Use list, not dict.items
-    }, countries=['UK'], is_guest=is_guest)
-
-
-@app.route('/estimates')
-@login_required
-def estimates():
-    estimates = Estimate.query.filter_by(user_id=current_user.id).all()
-    return render_template('estimates.html', estimates=estimates)
-
-
-@app.route('/download_pdf/<project_name>')
-@login_required
-def download_pdf(project_name):
-    estimate = Estimate.query.filter_by(user_id=current_user.id, project_name=project_name).first()
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    c.drawString(100, 800, f"Estimate for {project_name}")
-    c.drawImage(f"static/images/{'logo_logged_in.png' if current_user.is_authenticated else 'logo_guest.png'}", 50, 750,
-                width=100, height=50)
-    y = 700
-    for item in estimate.items:
-        c.drawString(50, y,
-                     f"{item.element}: {item.quantity} {item.unit}, Total Cost: {item.total_cost}, Allocated Days: {item.allocated_days}, People: {item.people}")
-        y -= 20
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-    return send_file(buffer, as_attachment=True, download_name=f"{project_name}_estimate.pdf")
-
-
-@app.route('/progress', methods=['POST'])
-@login_required
-def progress():
-    estimate_id = request.form['estimate_id']
-    for key, value in request.form.items():
-        if key.startswith('progress_'):
-            element = key.replace('progress_', '')
-            days_spent = float(value)
-            estimate = Estimate.query.get(estimate_id)
-            for item in estimate.items:
-                if item.element == element and days_spent > item.allocated_days:
-                    client = Client(os.getenv('TWILIO_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
-                    client.messages.create(
-                        body=f"Warning: Installation of {element} in {estimate.project_name} exceeds allocated time of {item.allocated_days} days",
-                        from_=os.getenv('TWILIO_PHONE'),
-                        to=os.getenv('ADMIN_PHONE')
-                    )
-                    progress = InstallationProgress(estimate_id=estimate_id, element=element, days_spent=days_spent)
-                    db.session.add(progress)
+            db.session.add(progress_entry)
     db.session.commit()
     return redirect(url_for('index'))
 
 
+@app.route('/download_pdf')
+@login_required
+def download_pdf():
+    estimate = Estimate.query.filter_by(user_id=current_user.id).order_by(Estimate.id.desc()).first()
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    c.drawString(100, 750, f"Project: {estimate.project_name}")
+    c.drawString(100, 730, f"Time Frame: {estimate.time_frame} days")
+    c.drawString(100, 710, f"Max Workers: {estimate.max_workers}")
+    y = 690
+    for element in estimate.elements:
+        c.drawString(100, y, f"{element['Element']}: {element['Quantity']} {element['Unit']}, "
+                             f"{element['People']} people, {element['Allocated_Days']:.2f} days, ${element['Cost']:.2f}")
+        y -= 20
+    c.drawImage('static/images/logo.png', 400, 700, width=100, height=50, preserveAspectRatio=True)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name='estimate.pdf')
+
+
+with app.app_context():
+    db.create_all()
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(debug=True)
