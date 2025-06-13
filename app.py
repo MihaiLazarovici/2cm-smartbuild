@@ -117,7 +117,8 @@ def calculate():
     max_workers = 0
     total_time = 0
     for element in limited_elements:
-        quantity = float(request.form.get(f'quantity_{element["Element"]}', 0))
+        quantity_str = request.form.get(f'quantity_{element["Element"]}', '0')
+        quantity = float(quantity_str) if quantity_str.strip() else 0.0
         people = int(request.form.get(f'people_{element["Element"]}', 0))
         if quantity > 0:
             X = [[quantity, people]]
