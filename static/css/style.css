@@ -40,15 +40,10 @@ header {
     width: 100%;
     max-width: 1200px;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end; /* Align auth links to right */
     align-items: center;
     margin-bottom: 20px;
     z-index: 2;
-}
-
-#logo {
-    width: 150px; /* Header logo size */
-    height: auto;
 }
 
 .auth-links {
