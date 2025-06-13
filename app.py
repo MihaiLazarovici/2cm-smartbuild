@@ -119,7 +119,8 @@ def calculate():
     for element in limited_elements:
         quantity_str = request.form.get(f'quantity_{element["Element"]}', '0')
         quantity = float(quantity_str) if quantity_str.strip() else 0.0
-        people = int(request.form.get(f'people_{element["Element"]}', 0))
+        people_str = request.form.get(f'people_{element["Element"]}', '0')
+        people = int(people_str) if people_str.strip() else 0
         if quantity > 0:
             X = [[quantity, people]]
             predicted_time = time_model.predict(X)[0]
