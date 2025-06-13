@@ -113,7 +113,7 @@ def calculate():
     time_model = joblib.load('models/time_model.pkl')
     cost_model = joblib.load('models/cost_model.pkl')
 
-    items = []
+    result_items = []  # Renamed to avoid confusion with dict.items
     max_workers = 0
     total_time = 0
     for element in limited_elements:
@@ -129,7 +129,7 @@ def calculate():
             allocated_days = (predicted_time * quantity) / people if people > 0 else predicted_time * quantity
             total_time += allocated_days
             max_workers = max(max_workers, people)
-            items.append({
+            result_items.append({
                 'element': element['Element'],
                 'unit': element['Unit'],
                 'quantity': quantity,
@@ -153,7 +153,7 @@ def calculate():
                             max_workers=max_workers)
         db.session.add(estimate)
         db.session.commit()
-        for item in items:
+        for item in result_items:
             estimate_item = EstimateItem(
                 estimate_id=estimate.id,
                 element=item['element'],
@@ -172,7 +172,7 @@ def calculate():
         'project_name': project_name,
         'time_frame': time_frame,
         'max_workers': max_workers,
-        'items': items
+        'items': result_items  # Use list, not dict.items
     }, countries=['UK'], is_guest=is_guest)
 
 
